@@ -158,23 +158,26 @@
   <button class="clear-checked" id="clearCheckedBtn" style="display:none;">체크된 항목 모두 삭제</button>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script>
-  const STORAGE_KEY = 'shopping-list-items';
+  const SUPABASE_URL = 'https://woatqidlsvckowsbfrxn.supabase.co';
+  const SUPABASE_ANON_KEY = 'sb_publishable_eYd98oFdG4cMopskHZAwSA_wCpIdYIp';
+  const TABLE = 'shopping_items';
+  const db = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-  function loadItems() {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      return raw ? JSON.parse(raw) : [];
-    } catch (e) {
+  async function loadItems() {
+    const { data, error } = await db
+      .from(TABLE)
+      .select('*')
+      .order('created_at', { ascending: true });
+    if (error) {
+      console.error('Failed to load items:', error);
       return [];
     }
+    return data;
   }
 
-  function saveItems(items) {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
-  }
-
-  let items = loadItems();
+  let items = [];
 
   const listEl = document.getElementById('list');
   const inputEl = document.getElementById('itemInput');
@@ -224,33 +227,48 @@
     clearCheckedBtn.style.display = checkedCount > 0 ? 'block' : 'none';
   }
 
-  function addItem() {
+  async function addItem() {
     const text = inputEl.value.trim();
     if (!text) return;
-    items.push({ id: Date.now() + Math.random(), text, checked: false });
     inputEl.value = '';
-    saveItems(items);
+    const { data, error } = await db
+      .from(TABLE)
+      .insert({ text, checked: false })
+      .select()
+      .single();
+    if (error) {
+      console.error('Failed to add item:', error);
+      return;
+    }
+    items.push(data);
     render();
     inputEl.focus();
   }
 
-  function toggleItem(id) {
+  async function toggleItem(id) {
     const item = items.find(i => i.id === id);
-    if (item) item.checked = !item.checked;
-    saveItems(items);
+    if (!item) return;
+    item.checked = !item.checked;
     render();
+    const { error } = await db.from(TABLE).update({ checked: item.checked }).eq('id', id);
+    if (error) console.error('Failed to update item:', error);
   }
 
-  function deleteItem(id) {
+  async function deleteItem(id) {
     items = items.filter(i => i.id !== id);
-    saveItems(items);
     render();
+    const { error } = await db.from(TABLE).delete().eq('id', id);
+    if (error) console.error('Failed to delete item:', error);
   }
 
-  function clearChecked() {
+  async function clearChecked() {
+    const checkedIds = items.filter(i => i.checked).map(i => i.id);
     items = items.filter(i => !i.checked);
-    saveItems(items);
     render();
+    if (checkedIds.length > 0) {
+      const { error } = await db.from(TABLE).delete().in('id', checkedIds);
+      if (error) console.error('Failed to clear checked items:', error);
+    }
   }
 
   addBtn.addEventListener('click', addItem);
@@ -259,7 +277,10 @@
   });
   clearCheckedBtn.addEventListener('click', clearChecked);
 
-  render();
+  (async function init() {
+    items = await loadItems();
+    render();
+  })();
 </script>
 </body>
 </html>
